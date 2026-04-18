@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -243,5 +244,59 @@ func TestHasChangesToStashStaged(t *testing.T) {
 
 	if !hasChangesToStash() {
 		t.Error("hasChangesToStash() = false, want true for staged changes")
+	}
+}
+
+func TestPullRebaseWhenAlreadyOnTrunk(t *testing.T) {
+	dir := setupTestRepoWithRemote(t)
+
+	// Find the bare remote path from git config
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("get remote url: %v", err)
+	}
+	bareDir := strings.TrimSpace(string(out))
+
+	// Clone the bare repo into a second working copy and push a new commit
+	secondClone := t.TempDir()
+	cmd = exec.Command("git", "clone", bareDir, secondClone)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("second clone: %v\n%s", err, out)
+	}
+
+	newFile := filepath.Join(secondClone, "new.txt")
+	os.WriteFile(newFile, []byte("from second clone"), 0644)
+	for _, args := range [][]string{
+		{"git", "config", "user.email", "test@test.com"},
+		{"git", "config", "user.name", "Test"},
+		{"git", "add", "new.txt"},
+		{"git", "commit", "-m", "remote commit"},
+		{"git", "push", "origin", "main"},
+	} {
+		cmd = exec.Command(args[0], args[1:]...)
+		cmd.Dir = secondClone
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+
+	// Now in the original repo, we're on main (the trunk branch).
+	// Verify the new file doesn't exist yet.
+	chdir(t, dir)
+	localFile := filepath.Join(dir, "new.txt")
+	if _, err := os.Stat(localFile); err == nil {
+		t.Fatal("new.txt should not exist before pull")
+	}
+
+	// Run pull --rebase (simulating what main() does when already on trunk)
+	if err := runGit("pull", "--rebase", "origin", "main"); err != nil {
+		t.Fatalf("pull --rebase failed: %v", err)
+	}
+
+	// The new file should now exist
+	if _, err := os.Stat(localFile); err != nil {
+		t.Error("new.txt should exist after pull --rebase on trunk branch")
 	}
 }

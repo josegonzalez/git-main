@@ -116,11 +116,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if currentBranch == mainBranch {
-		fmt.Fprintf(os.Stderr, "Already on %s\n", mainBranch)
-		os.Exit(0)
-	}
-
 	didStash := false
 	if hasChangesToStash() {
 		if err := runGit("stash"); err != nil {
@@ -130,12 +125,14 @@ func main() {
 		didStash = true
 	}
 
-	if err := runGit("checkout", mainBranch); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to checkout %s\n", mainBranch)
-		if didStash {
-			runGit("stash", "pop")
+	if currentBranch != mainBranch {
+		if err := runGit("checkout", mainBranch); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to checkout %s\n", mainBranch)
+			if didStash {
+				runGit("stash", "pop")
+			}
+			os.Exit(1)
 		}
-		os.Exit(1)
 	}
 
 	if err := runGit("pull", "--rebase", *remote, mainBranch); err != nil {
